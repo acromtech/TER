@@ -15,7 +15,29 @@ You can learn more about Khalil-Dombre_Modelisation : https://www.gdr-robotique.
 You can check also the pinochio python library : https://github.com/stack-of-tasks/pinocchio/tree/master/examples
 """
 
+## Environnement Python
+################################################# 
 import numpy as np
+import scipy
+import time
+##############
+from matplotlib import cm
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import axes3d  # Fonction pour la 3D
+from mpl_toolkits.mplot3d import proj3d
+#############
+from scipy.optimize import minimize
+from scipy.optimize import root
+import scipy.optimize as spop
+from scipy import linalg
+
+from math import sqrt
+from math import cos
+from math import sin
+from math import pi
+from numpy import arctan2
+import sympy as sp
+import sympy as sp
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
@@ -60,16 +82,16 @@ class Tools:
         the initialized joint types, joint distances, and joint orientations.
         """
         # Initialize DHM parameters with default values
-        num_joints = len(q_config)
-        self.a = [0] * num_joints
-        self.alpha = [0] * num_joints
-        self.r = [0] * num_joints
+        self.num_joints = len(q_config)
+        self.a = [0] * self.num_joints
+        self.alpha = [0] * self.num_joints
+        self.r = [0] * self.num_joints
 
         self.joint_types = joint_types
         self.joint_distances = joint_distances
         self.joint_orientations = joint_orientations
         self.q_config = q_config
-        if joint_types is not None : self.calculate_DHM_parameters()
+        #if joint_types is not None : self.calculate_DHM_parameters()
 
 
     # DHM PARAMETERS ================================================================================================================
@@ -553,21 +575,52 @@ class Tools:
                 Z-coordinate of the end-effector position.
         """
 
-        # ========================
-        # Robotic Design TP Code :
-        # =========================
-        # for i in range(3):
-        #     T = np.array([[np.cos(q[i]), -np.sin(q[i]), 0, self.a[i]],
-        #                   [np.cos(self.alpha[i]) * np.sin(q[i]), np.cos(self.alpha[i]) * np.cos(q[i]), -np.sin(self.alpha[i]), -self.r[i] * np.sin(self.alpha[i])],
-        #                   [np.sin(self.alpha[i]) * np.sin(q[i]), np.sin(self.alpha[i]) * np.cos(q[i]), np.cos(self.alpha[i]), self.r[i] * np.cos(self.alpha[i])],
-        #                   [0, 0, 0, 1]])
-        #     T0N = T0N @ T if i != 0 else T
-        # T0E = T0N @ np.array([[1, 0, 0, self.la], [0, 1, 0, 0], [0, 0, 1, self.lb], [0, 0, 0, 1]])
-        # X, Y, Z = T0E[:3, 3]
-        # phi,nu,psi = [np.arctan2(-T0E[1, 2], T0E[2, 2])**(2), np.arcsin(T0E[0, 2]), np.arctan2(T0E[0, 1], T0E[0, 0])]
-        # return X, Y, Z
+        q[0] = np.deg2rad(q[0]) 
+        q[2] = np.deg2rad(q[2])  
+        q[3] = np.deg2rad(q[3])  
+        q1,q2,q3,q4 = q
 
-    def inverse_kinematics(self, X, Y, Z):
+        #Definition des longueurs
+        l1 = self.joint_distances[0]
+        l2 = self.joint_distances[1]
+        L1 = self.joint_distances[2]
+        L4 = self.joint_distances[3]
+
+        c1= np.cos(q1)
+        s1=np.sin(q1)
+        c4= np.cos(q4)
+        s4=np.sin(q4)
+        c3= np.cos(q3)
+        s3=np.sin(q3)
+
+        T04 = np.array([[c4*(c1*c3 - s1*s3) + s4*(-c1*s3 - c3*s1),        c4*(-c1*s3 - c3*s1) - s4*(c1*c3 - s1*s3),         0,            c1*l1 + l2*(c1*c3 - s1*s3)],
+            [c4*(c1*s3 + c3*s1) + s4*(c1*c3 - s1*s3),         c4*(c1*c3 - s1*s3) - s4*(c1*s3 + c3*s1),          0,            l1*s1 + l2*(c1*s3 + c3*s1)],
+            [              0,                                                   0,                              1,                      L1 + q2         ],
+            [              0,                                                   0,                              0,                        1             ]])
+        
+        R04 = T04[0:3,0:3]
+        P = T04[0:3,3]
+
+        P04 = np.array([[P[0]], [P[1]], [P[2]]])
+
+        #Ot dans le repère R4
+        Ot_R4 = [[0],[0],[-L4]]
+
+        # Ot dans le repère R0
+        Ot_R0 = np.dot(R04,Ot_R4)
+
+        #Position organe terminal
+        X = P04+Ot_R0
+        
+        #Angle organe terminal
+        theta_d = np.array([[np.rad2deg(q1+q3+q4)]])
+        
+        #Position et orientation de l'organe terminal
+        Xd = np.vstack((X, theta_d )) 
+
+        return Xd
+
+    def inverse_kinematics(self, Xbut):
         """
         Perform the inverse kinematics (Geometric Inverse Model) to compute joint configurations from the end-effector position.
 
@@ -583,45 +636,71 @@ class Tools:
             all_q : list[float]
                 List of joint configurations for all joints corresponding to the given end-effector position.
         """
+        #Definition des longueurs
+        l1 = self.joint_distances[0]
+        l2 = self.joint_distances[1]
+        L1 = self.joint_distances[2]
+        L4 = self.joint_distances[3]
 
-        # ========================
-        # Robotic Design TP Code :
-        # =========================
-        # z1 = []
-        # q1, q2, q3 = [], [], []
-        # all_q = []
+        x = Xbut[0][0]
+        y = Xbut[1][0]
+        z = Xbut[2][0]
+        theta_but = np.deg2rad(Xbut[3][0])
 
-        # z1.append(np.sqrt(X**(2) + Y**(2) - ((self.lb - self.o1o2)**(2))))
-        # z1.append(-np.sqrt(X**(2) + Y**(2) - ((self.lb - self.o1o2)**(2))))
-        # z1.append(np.sqrt(X**(2) + Y**(2) - ((self.lb - self.o1o2)**(2))))
-        # z1.append(-np.sqrt(X**(2) + Y**(2) - ((self.lb - self.o1o2)**(2))))
-        # z2 = Z - self.o0o1
-        # c3 = (z1[0]**(2) + z2**(2) - self.o2o3**(2) - self.la**(2)) / (2 * self.o2o3 * self.la)
-        # q3.append(np.arctan2(np.sqrt(1 - c3**(2)), c3))
-        # q3.append(np.arctan2(np.sqrt(1 - c3**(2)), c3))
-        # q3.append(np.arctan2(-np.sqrt(1 - c3**(2)), c3))
-        # q3.append(np.arctan2(-np.sqrt(1 - c3**(2)), c3))
-
-        # for i in range (len(q3)):
-        #     b1=self.o2o3+self.la*np.cos(q3[i])
-        #     b2=self.la*np.sin(q3[i])
-
-        #     s2=(b1*z2-b2*z1[i])/(b1**(2)+b2**(2))
-        #     c2=(b1*z1[i]+b2*z2)/(b1**(2)+b2**(2))
-        #     q2.append(np.arctan2(s2,c2))
-
-        #     s1=(X*(-self.lb+self.o1o2)-Y*(self.la*np.cos(q2[i]+q3[i])+self.o2o3*np.cos(q2[i])))/((self.lb-self.o1o2)*(-self.lb+self.o1o2)-(self.la*np.cos(q2[i]+q3[i])+self.o2o3*np.cos(q2[i]))*(self.la*np.cos(q2[i]+q3[i])+self.o2o3*np.cos(q2[i])))
-        #     c1=(Y*(self.lb-self.o1o2)-X*(self.la*np.cos(q2[i]+q3[i])+self.o2o3*np.cos(q2[i])))/((self.lb-self.o1o2)*(-self.lb+self.o1o2)-(self.la*np.cos(q2[i]+q3[i])+self.o2o3*np.cos(q2[i]))*(self.la*np.cos(q2[i]+q3[i])+self.o2o3*np.cos(q2[i])))
-        #     q1.append(np.arctan2(s1,c1))
-
-        #     # print([q1[i],q2[i],q3[i]])
-        #     all_q.append([q1[i],q2[i],q3[i]])
+        #configuration des articulations
+        q =[]
         
-        # return all_q
+        #Déduction q2 : Ligne 3, Colonne 3 MGD 
+        q2 = z-L1+L4
 
-    def jacobian(self,q):
+        #Déduction q3 et q1 : Ligne 2 et 1, Colonne 3 MGD 
+        
+            # Notations utilisées : formules générales du cours :
+            
+            #_________Déduction q3_________
+        
+        X = l1
+        Y = l2
+        Z1 = x 
+        Z2 = y 
+
+        signe_s3 = [-1,1] # signe possibles de s3
+
+        for signe in signe_s3 : 
+
+            c3 = (Z1**2 + Z2**2 - X**2 - Y**2 )/(2*X*Y)
+
+            s3 = signe*sqrt(1-c3**2)
+
+            q3 = arctan2(s3, c3)
+
+            
+                #______Déduction q1__________
+            
+            
+            B1 = X + Y*c3
+            B2 = Y*s3
+
+            s1 = (B1*Z2-B2*Z1)/(B1**2+B2**2)
+
+            c1 = (B1*Z2+B2*Z1)/(B1**2+B2**2)
+
+            q1 = arctan2(s1, c1)
+
+            #Déduction q4 : 
+        
+            q4 = theta_but-q1-q3
+            
+            
+            q.append((np.rad2deg(q1),q2,np.rad2deg(q3),np.rad2deg(q4)))
+
+        return np.transpose(np.array(q))
+        
+    
+        
+    def jac_analytique(self, qdeg) :
         """
-        Compute the Jacobian matrix for the robot given its configurations.
+        Compute the analytique Jacobian matrix for the robot given its configurations.
 
         Parameters:
             q : list[float]
@@ -629,15 +708,107 @@ class Tools:
 
         Returns:
             j : numpy.ndarray
-                Jacobian matrix. 
+                analytique Jacobian matrix. 
         """
-        # ========================
-        # Robotic Design TP Code :
-        # =========================
-        # return np.array([   [-self.la*np.sin(q[0])*np.cos(q[1]+q[1])+self.lb*np.cos(q[0])-self.o1o2*np.cos(q[0])-self.o2o3*np.cos(q[1])*np.sin(q[0])    ,   -self.la*np.cos(q[0])*np.sin(q[1]+q[2])-self.o2o3*np.cos(q[0])*np.sin(q[1]) ,   -self.la*np.cos(q[0])*np.sin(q[1]+q[2])  ], 
-        #                 [ self.la*np.cos(q[0])*np.cos(q[1]+q[2])+(self.o0o1+self.o1o2-self.o2o3)*np.sin(q[0])-self.o2o3*np.cos(q[1])*np.cos(q[0])   ,   -self.la*np.sin(q[0])*np.sin(q[1]-q[2])-self.o2o3*np.sin(q[1])*np.sin(q[0]) ,   self.la*np.sin(q[0])*np.sin(q[1]-q[2])   ],
-        #                 [ 0                                                                                                                         ,   self.la*np.cos(q[1]+q[2])+self.o2o3*np.cos(q[1])                            ,   self.la*np.cos(q[2]+q[1])                ]])
+        q = qdeg
+        q[0] = np.deg2rad(q[0]) 
+        q[2] = np.deg2rad(q[2])  
+        q[3] = np.deg2rad(q[3])  
+        q1,q2,q3,q4 = q
         
+        l1 = self.joint_distances[0]
+        l2= self.joint_distances[1]
+        
+        c1= np.cos(q1)
+        s1=np.sin(q1)
+        c4= np.cos(q4)
+        s4=np.sin(q4)
+        c3= np.cos(q3)
+        s3=np.sin(q3)
+        Ja=np.array([[-l1*s1-l2*(c3*s1+s3*c1),       0      ,       -l2*(c3*s1+s3*c1) ,       0     ], 
+                    [l1*c1+l2*(c3*c1-s3*s1) ,       0      ,        l2*(c3*c1+s3*s1) ,       0     ], 
+                    [          0            ,       1      ,               0         ,       0     ],
+                    [          1            ,       0      ,               1         ,       1     ]
+                    ])
+
+
+        return Ja    
+    def jac_geo(self, qdeg) :
+        """
+        Compute the geometrique Jacobian matrix for the robot given its configurations.
+
+        Parameters:
+            q : list[float]
+                Robot configurations.
+
+        Returns:
+            j : numpy.ndarray
+                geometrique Jacobian matrix. 
+        """
+        q = qdeg
+        q[0] = np.deg2rad(q[0]) 
+        q[2] = np.deg2rad(q[2])  
+        q[3] = np.deg2rad(q[3])  
+        q1,q2,q3,q4 = q
+
+        l1 = self.joint_distances[0]
+        l2= self.joint_distances[1]
+        
+        c1= np.cos(q1)
+        s1=np.sin(q1)
+        c4= np.cos(q4)
+        s4=np.sin(q4)
+        c3= np.cos(q3)
+        s3=np.sin(q3)
+
+        J=np.array([[-l1*s1-l2*(c3*s1+s3*c1) ,       0      ,       -l2*(c3*s1+s3*c1) ,       0     ], 
+                    [l1*c1+l2*(c3*c1-s3*s1) ,       0      ,        l2*(c3*c1+s3*s1) ,       0     ], 
+                    [          0            ,       1      ,               0         ,       0     ],
+                    [          1            ,       0      ,               1         ,       1     ]
+                    ])
+        
+    
+
+        return J
+    def Direct_differential_kinematics(self,qp,q) :
+        """
+        Compute the differential kinematics (Differential Direct Model) to find the end-effector velocity from joint velocities.
+
+        Parameters:
+            qp : list[float]
+                Joint velocities for all joints.
+            q : list[float]
+                Joint configurations for all joints.
+
+        Returns:
+            Xp : numpy.ndarray
+                End-effector velocity.
+        """
+
+        q1,q2,q3,q4= q
+        Ja = self.jac_analytique(q)
+        Xp = np.dot(Ja,qp)
+        return Xp
+    
+    def Indirect_differentiel_kinematics(self, Xp,q) :
+        """
+        Compute the joint velocities from end-effector velocity using the inverse differential kinematics.
+
+        Parameters:
+            Xp : numpy.ndarray
+                End-effector velocity.
+            q : list[float]
+                Joint configurations for all joints.
+
+        Returns:
+            qp : numpy.ndarray
+                Joint velocities for all joints.
+        """
+        q1,q2,q3,q4 = q
+        Ja_inv = np.linalg.inv(self.jac_analytique(q))
+        qp = np.dot(Ja_inv,Xp)
+        return qp
+
     def inverse_dynamics (self, q, dotX):
         """
         Perform the model-based inverse dynamics computation.
